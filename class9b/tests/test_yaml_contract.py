@@ -48,6 +48,7 @@ def test_yaml_lives_with_the_owner() -> None:
         "mooncake",
         "cluster",
         "errors",
+        "performance_analysis",
     }
 
 def test_two_scaled_objects_two_targets_two_queries() -> None:

@@ -101,6 +101,12 @@ class Snapshot:
 
     soak_weight: float = 1.0
 
+# Valid shed reasons must match gateway.metrics.SHED_REASONS
+VALID_SHED_REASONS = frozenset({
+    "tenant_tokens", "timeout_queue", "kv_free", "p99_spread", "no_eligible_pod",
+    "prefill_queue_full", "decode_queue_full", "gpu_oom", "upstream_timeout"
+})
+
 @dataclass
 class Shed:
 

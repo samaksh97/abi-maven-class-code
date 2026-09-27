@@ -6,7 +6,8 @@ from typing import Iterable
 from gateway.types import Snapshot
 
 SHED_REASONS = frozenset(
-    {"tenant_tokens", "timeout_queue", "kv_free", "p99_spread", "no_eligible_pod"}
+    {"tenant_tokens", "timeout_queue", "kv_free", "p99_spread", "no_eligible_pod", 
+     "prefill_queue_full", "decode_queue_full", "gpu_oom", "upstream_timeout"}
 )
 
 LATENCY_BUCKETS = (
@@ -81,6 +82,17 @@ class Metrics:
         self.place_total: dict[str, int] = defaultdict(int)
         self.latency: dict[str, Histogram] = {stage: Histogram() for stage in STAGES}
         self.replicas: dict[str, list[Snapshot]] = {"prefill": [], "decode": []}
+        
+        # New metrics for enhanced observability
+        self.ttft_histogram = Histogram()
+        self.inter_token_latency_histogram = Histogram()
+        self.input_tokens_total = 0
+        self.output_tokens_total = 0
+        self.admission_queue_depth = 0
+        self.prefill_queue_depth = 0
+        self.decode_queue_depth = 0
+        self.gpu_oom_total = 0
+        self.upstream_timeout_total = 0
 
     def inc_requests(self) -> None:
         self.requests_total += 1
@@ -128,6 +140,42 @@ class Metrics:
         if stage not in self.latency:
             self.latency[stage] = Histogram()
         self.latency[stage].observe(seconds)
+
+    def observe_ttft(self, seconds: float) -> None:
+        """Track Time-to-First-Token latency"""
+        self.ttft_histogram.observe(seconds)
+
+    def observe_inter_token_latency(self, seconds: float) -> None:
+        """Track inter-token latency (time between consecutive tokens)"""
+        self.inter_token_latency_histogram.observe(seconds)
+
+    def inc_input_tokens(self, count: int) -> None:
+        """Track total input tokens processed"""
+        self.input_tokens_total += int(count)
+
+    def inc_output_tokens(self, count: int) -> None:
+        """Track total output tokens generated"""
+        self.output_tokens_total += int(count)
+
+    def set_admission_queue_depth(self, depth: int) -> None:
+        """Set current admission queue depth"""
+        self.admission_queue_depth = int(depth)
+
+    def set_prefill_queue_depth(self, depth: int) -> None:
+        """Set current prefill queue depth"""
+        self.prefill_queue_depth = int(depth)
+
+    def set_decode_queue_depth(self, depth: int) -> None:
+        """Set current decode queue depth"""
+        self.decode_queue_depth = int(depth)
+
+    def inc_gpu_oom(self) -> None:
+        """Track GPU OOM events"""
+        self.gpu_oom_total += 1
+
+    def inc_upstream_timeout(self) -> None:
+        """Track upstream timeout events"""
+        self.upstream_timeout_total += 1
 
     def observe_replicas(self, pool: str, workers: Iterable[object]) -> None:
         snaps: list[Snapshot] = []
@@ -222,6 +270,27 @@ class Metrics:
                 include_type=first,
             )
             first = False
+        
+        # Add new enhanced metrics
+        lines += self.ttft_histogram.render("orch_ttft_seconds", include_type=True)
+        lines += self.inter_token_latency_histogram.render("orch_inter_token_latency_seconds", include_type=True)
+        lines += [
+            "# TYPE orch_input_tokens_total counter",
+            f"orch_input_tokens_total {self.input_tokens_total}",
+            "# TYPE orch_output_tokens_total counter",
+            f"orch_output_tokens_total {self.output_tokens_total}",
+            "# TYPE orch_admission_queue_depth gauge",
+            f"orch_admission_queue_depth {self.admission_queue_depth}",
+            "# TYPE orch_prefill_queue_depth gauge",
+            f"orch_prefill_queue_depth {self.prefill_queue_depth}",
+            "# TYPE orch_decode_queue_depth gauge",
+            f"orch_decode_queue_depth {self.decode_queue_depth}",
+            "# TYPE orch_gpu_oom_total counter",
+            f"orch_gpu_oom_total {self.gpu_oom_total}",
+            "# TYPE orch_upstream_timeout_total counter",
+            f"orch_upstream_timeout_total {self.upstream_timeout_total}",
+        ]
+        
         lines += [
             "# TYPE orch_replica_healthy gauge",
             "# TYPE orch_replica_saturating gauge",

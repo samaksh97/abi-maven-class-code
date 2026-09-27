@@ -189,19 +189,34 @@ class VLLMWorker:
 
     def enqueue(self, req: Request, phase: str = "both") -> dict | None:
         import json
+        import time
 
+        start_time = time.perf_counter()
+        
         payload = {
             "model": self.model,
             "messages": request_messages(req),
             "max_tokens": max(1, int(req.max_new_tokens)),
         }
         raw = self._post("/v1/chat/completions", payload)
+        
+        end_time = time.perf_counter()
+        total_duration = end_time - start_time
+        
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             return {"choices": [{"message": {"content": raw[:240]}}]}
         if not isinstance(data, dict):
             return {"choices": [{"message": {"content": str(data)[:240]}}]}
+        
+        # Store timing info for later metrics extraction
+        # The gateway will handle TTFT estimation from this
+        if not hasattr(req, '_timing'):
+            req._timing = {}
+        req._timing['total_duration'] = total_duration
+        req._timing['start_time'] = start_time
+        
         return data
 
     def snapshot(self) -> Snapshot:

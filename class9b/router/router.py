@@ -281,10 +281,25 @@ class Router:
 
     @staticmethod
     def _shed_reason(pool: Sequence[Worker]) -> str:
+        # Check for KV saturation first
         for w in pool:
             snap = w.snapshot()
             if snap.kv_free_ratio is not None and snap.kv_free_ratio < (1.0 - KV_SATURATION):
                 return "kv_free"
+        
+        # Check for queue saturation
+        total_queue_depth = 0
+        for w in pool:
+            snap = w.snapshot()
+            if snap.queue_depth is not None:
+                total_queue_depth += snap.queue_depth
+        
+        # Determine if this is prefill or decode pool based on worker IDs
+        pool_name = "prefill" if any("prefill" in str(w.id) for w in pool) else "decode"
+        
+        if total_queue_depth > 100:  # High queue depth threshold
+            return f"{pool_name}_queue_full"
+        
         return "no_eligible_pod"
 
 plan = plan_replicas
